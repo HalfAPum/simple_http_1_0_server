@@ -3,7 +3,8 @@ project(simple_http_1_0_server)
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_executable(simple_http_1_0_server main.cpp)
+add_executable(simple_http_1_0_server main.cpp
+        RequestLine.h)
 if(WIN32)
     target_link_libraries(simple_http_1_0_server wsock32 ws2_32)
 endif()
