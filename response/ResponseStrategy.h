@@ -4,7 +4,7 @@
 
 #ifndef SENDSTRATEGY_H
 #define SENDSTRATEGY_H
-#include "../StatusCode.h"
+#include "StatusCode.h"
 
 class ResponseStrategy {
 public:

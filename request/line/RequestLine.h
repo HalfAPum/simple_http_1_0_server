@@ -12,7 +12,8 @@ struct RequestLine {
     unsigned httpMajorVersion;
     unsigned httpMinorVersion;
 
-    bool isSimpleRequest() const;
+    [[nodiscard]] bool isSimpleRequest() const;
+    [[nodiscard]] bool isFileURI() const;
 };
 
 #endif //REQUESTLINE_H

@@ -8,3 +8,6 @@ bool RequestLine::isSimpleRequest() const {
     return httpMajorVersion == 0 && httpMinorVersion == 0;
 }
 
+bool RequestLine::isFileURI() const {
+    return reqeustURI.find('.') != std::string::npos;
+}

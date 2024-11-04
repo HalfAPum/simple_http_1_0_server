@@ -10,9 +10,21 @@ struct StatusCode {
     int statusCode;
     std::string reasonPhrase;
 
+    bool operator==(const StatusCode &other) const;
+    bool operator!=(const StatusCode &other) const;
 };
 
+inline bool StatusCode::operator==(const StatusCode &other) const {
+    return statusCode == other.statusCode;
+}
+
+inline bool StatusCode::operator!=(const StatusCode &other) const {
+    return !(*this == other);
+}
+
 namespace StatusCodes {
+    const StatusCode NONE = { -1, "UNKNOWN" };
+
     const StatusCode OK = { 200, "OK" };
     const StatusCode CREATED = { 201, "Created" };
     const StatusCode ACCEPTED = { 202, "Accepted" };
