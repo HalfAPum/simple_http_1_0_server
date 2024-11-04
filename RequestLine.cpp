@@ -5,6 +5,6 @@
 #include "RequestLine.h"
 
 bool RequestLine::isSimpleRequest() const {
-    return httpMajorVersion == 0 && httpMinorVersion == 9;
+    return httpMajorVersion == 0 && httpMinorVersion == 0;
 }
 

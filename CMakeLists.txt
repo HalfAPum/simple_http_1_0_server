@@ -6,7 +6,12 @@ set(CMAKE_CXX_STANDARD 17)
 add_executable(simple_http_1_0_server main.cpp
         RequestLine.h
         RequestLine.cpp
-        StatusCode.h)
+        StatusCode.h
+        response/ResponseStrategy.h
+        response/SimpleResponseStrategy.h
+        response/SimpleResponseStrategy.cpp
+        response/FullResponseStrategy.h
+        response/FullResponseStrategy.cpp)
 if(WIN32)
     target_link_libraries(simple_http_1_0_server wsock32 ws2_32)
 endif()

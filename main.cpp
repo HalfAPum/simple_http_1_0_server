@@ -6,6 +6,9 @@
 
 #include "RequestLine.h"
 #include "StatusCode.h"
+#include "response/FullResponseStrategy.h"
+#include "response/ResponseStrategy.h"
+#include "response/SimpleResponseStrategy.h"
 
 #define DEFAULT_PORT "8080"
 #define DEFAULT_BUFLEN 512
@@ -17,6 +20,9 @@ int recvbuflen = DEFAULT_BUFLEN;
 addrinfo *result = nullptr, *ptr = nullptr, hints;
 
 StatusCode errorCode;
+
+auto simpleResponseStrategy = SimpleResponseStrategy();
+auto fullResponseStrategy = FullResponseStrategy();
 
 boolean validateHttpMethod(const std::string &method) {
     if (method == "GET" || method == "POST" || method == "HEAD") {
@@ -138,7 +144,7 @@ boolean validateRequestLine(const std::string &line, RequestLine &requestLine) {
     }
 
     if (!validateHttpVersion(httpVersion, requestLine)) {
-        //TODO Server should return the status code 400 (bad request)
+        errorCode = StatusCodes::BAD_REQUEST;
         return false;
     }
 
@@ -239,23 +245,37 @@ int main()
 
             RequestLine requestLine;
 
-            if (!validateRequestLine(line, requestLine)) {
-                //send error reponse
-                //do shutdown (don't copy paste)
+            bool isRequestLineValid = validateRequestLine(line, requestLine);
+
+            ResponseStrategy *responseStrategy = nullptr;
+            if (requestLine.isSimpleRequest()) {
+                responseStrategy = &simpleResponseStrategy;
+            } else {
+                responseStrategy = &fullResponseStrategy;
             }
 
-            //old
-            // Echo the buffer back to the sender
-            iSendResult = send( ClientSocket, recvbuf, iResult, 0 );
+            errorCode = StatusCodes::NOT_IMPLEMENTED;
+            // if (!isRequestLineValid) {
+                std::string errorResponse = responseStrategy->getErrorResponse(errorCode);
+                std::cout << errorResponse << std::endl;
+                iSendResult = send(ClientSocket, errorResponse.c_str(), errorResponse.length(), 0);
+                //send error reponse
+                //do shutdown (don't copy paste)
+            // } else {
+                // old
+                // Echo the buffer back to the sender
+                // iSendResult = send(ClientSocket, recvbuf, iResult, 0);
+            // }
             if (iSendResult == SOCKET_ERROR) {
                 printf("send failed with error: %d\n", WSAGetLastError());
                 closesocket(ClientSocket);
                 WSACleanup();
                 return 1;
+            } else {
+                printf("Bytes sent: %d\n", iSendResult);
+                break;
             }
-            printf("Bytes sent: %d\n", iSendResult);
-        }
-        else if (iResult == 0)
+        } else if (iResult == 0)
             printf("Connection closing...\n");
         else  {
             printf("recv failed with error: %d\n", WSAGetLastError());
