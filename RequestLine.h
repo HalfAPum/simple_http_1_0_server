@@ -11,6 +11,8 @@ struct RequestLine {
     std::string reqeustURI;
     unsigned httpMajorVersion;
     unsigned httpMinorVersion;
+
+    bool isSimpleRequest() const;
 };
 
 #endif //REQUESTLINE_H

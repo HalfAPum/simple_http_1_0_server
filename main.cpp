@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "RequestLine.h"
+#include "StatusCode.h"
 
 #define DEFAULT_PORT "8080"
 #define DEFAULT_BUFLEN 512
@@ -14,6 +15,8 @@ int iResult, iSendResult;
 int recvbuflen = DEFAULT_BUFLEN;
 
 addrinfo *result = nullptr, *ptr = nullptr, hints;
+
+StatusCode errorCode;
 
 boolean validateHttpMethod(const std::string &method) {
     if (method == "GET" || method == "POST" || method == "HEAD") {
@@ -92,19 +95,19 @@ boolean validateHttpVersion(const std::string &httpVersion, RequestLine &request
     return true;
 }
 
-boolean validateRequestLine(std::string &line, RequestLine &requestLine) {
+boolean validateRequestLine(const std::string &line, RequestLine &requestLine) {
     std::stringstream ssLine(line);
 
     std::string method;
     ssLine >> method;
 
     if (ssLine.fail()) {
-        //TODO Server should return the status code 400 (bad request)
+        errorCode = StatusCodes::BAD_REQUEST;
         return false;
     }
 
     if (!validateHttpMethod(method)) {
-        //TODO Server should return the status code 501 (not implemented)
+        errorCode = StatusCodes::NOT_IMPLEMENTED;
         return false;
     }
 
@@ -114,12 +117,12 @@ boolean validateRequestLine(std::string &line, RequestLine &requestLine) {
     ssLine >> requestURI;
 
     if (ssLine.fail()) {
-        //TODO Server should return the status code 400 (bad request)
+        errorCode = StatusCodes::BAD_REQUEST;
         return false;
     }
 
     if (!validateRequestURI(requestURI)) {
-        //TODO Server should return the status code 400 (bad request)
+        errorCode = StatusCodes::BAD_REQUEST;
         return false;
     }
 
@@ -236,7 +239,10 @@ int main()
 
             RequestLine requestLine;
 
-            validateRequestLine(line, requestLine);
+            if (!validateRequestLine(line, requestLine)) {
+                //send error reponse
+                //do shutdown (don't copy paste)
+            }
 
             //old
             // Echo the buffer back to the sender
