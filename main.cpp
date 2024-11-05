@@ -4,10 +4,13 @@
 #include <ws2tcpip.h>
 #include <sstream>
 
+#include "handler/full/FullRequestHandler.h"
+#include "handler/simple/SimpleRequestHandler.h"
+#include "request/FullRequest.h"
 #include "request/headers/RequestHeadersValidator.h"
 #include "request/line/RequestLine.h"
 #include "request/line/RequestLineValidator.h"
-#include "response/StatusCode.h"
+#include "response/FullResponse.h"
 #include "response/FullResponseStrategy.h"
 #include "response/ResponseStrategy.h"
 #include "response/SimpleResponseStrategy.h"
@@ -130,22 +133,37 @@ int main()
             std::string errorResponse = responseStrategy->getErrorResponse(requestLineValidator.errorCode);
 
             iSendResult = send(ClientSocket, errorResponse.c_str(), errorResponse.length(), 0);
-            //send error reponse
             //do shutdown (don't copy paste)
         } else {
-            //Validate headers
-            auto requestHeadersValidator = RequestHeadersValidator();
-            RequestHeaders requestHeaders = requestHeadersValidator.validateHeaders(request);
+            std::string response;
 
-            if (requestHeadersValidator.areRequestHeadersInvalid()) {
-                std::string errorResponse = responseStrategy->getErrorResponse(requestHeadersValidator.errorCode);
-
-                iSendResult = send(ClientSocket, errorResponse.c_str(), errorResponse.length(), 0);
+            if (processedRequestLine.isSimpleRequest()) {
+                response = SimpleRequestHandler::handleRequest(processedRequestLine, simpleResponseStrategy);
             } else {
-                // old
-                // Echo the buffer back to the sender
-                iSendResult = send(ClientSocket, recvbuf, iResult, 0);
+                //Validate headers
+                auto requestHeadersValidator = RequestHeadersValidator();
+                RequestHeaders requestHeaders = requestHeadersValidator.validateHeaders(request);
+
+                if (requestHeadersValidator.areRequestHeadersInvalid()) {
+                    response = responseStrategy->getErrorResponse(requestHeadersValidator.errorCode);
+                } else {
+                    std::string requestBody(request.str());
+
+                    FullRequest fullRequest { processedRequestLine, requestHeaders, requestBody };
+
+                    auto fullResponse = FullResponse();
+
+                    FullRequestHandler::handleRequest(fullRequest, fullResponse);
+
+                    if (fullResponse.isErrorResponse()) {
+                        response = responseStrategy->getErrorResponse(fullResponse.getErrorCode());
+                    } else {
+                        response = FullResponseStrategy::getFullResponseStr(processedRequestLine.method, fullResponse);\
+                    }
+                }
             }
+
+            iSendResult = send(ClientSocket, response.c_str(), response.length(), 0);
         }
         if (iSendResult == SOCKET_ERROR) {
             printf("send failed with error: %d\n", WSAGetLastError());

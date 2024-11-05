@@ -16,7 +16,16 @@ add_executable(simple_http_1_0_server main.cpp
         request/line/RequestLineValidator.cpp
         request/headers/RequestHeadersValidator.h
         request/headers/RequestHeadersValidator.cpp
-        request/headers/RequestHeaders.h)
+        request/headers/RequestHeaders.h
+        request/FullRequest.h
+        handler/simple/SimpleRequestHandler.h
+        handler/simple/SimpleRequestHandler.cpp
+        discoverer/FileDiscoverer.h
+        discoverer/FileDiscoverer.cpp
+        handler/full/FullRequestHandler.h
+        handler/full/FullRequestHandler.cpp
+        response/FullResponse.h
+        response/FullResponse.cpp)
 if(WIN32)
     target_link_libraries(simple_http_1_0_server wsock32 ws2_32)
 endif()
