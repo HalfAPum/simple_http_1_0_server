@@ -3,6 +3,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <sstream>
+#include <thread>
 
 #include "handler/full/FullRequestHandler.h"
 #include "handler/simple/SimpleRequestHandler.h"
@@ -24,8 +25,6 @@ auto simpleResponseStrategy = SimpleResponseStrategy();
 auto fullResponseStrategy = FullResponseStrategy();
 
 SOCKET ListenSocket = INVALID_SOCKET;
-SOCKET ClientSocket = INVALID_SOCKET;
-
 
 bool checkResultFail(const bool result, const std::string &actionName, const SOCKET socket) {
     if (!result) return false;
@@ -33,7 +32,6 @@ bool checkResultFail(const bool result, const std::string &actionName, const SOC
     std::cout << actionName << " failed with error: " << WSAGetLastError() << std::endl;
 
     closesocket(socket);
-    WSACleanup();
 
     return true;
 }
@@ -86,7 +84,8 @@ bool setUpTCPConnection() {
     return true;
 }
 
-void printRequest(char buffer[DEFAULT_BUFLEN], int size) {
+void printRequest(char buffer[DEFAULT_BUFLEN], const int size, const SOCKET client) {
+    std::cout << "Received request from: " << client << std::endl;
     for(int i = 0 ; i < size ; ++i){
         std::cout << buffer[i];
     }
@@ -102,7 +101,6 @@ void shutDownSocket(const SOCKET socket) {
 
     // cleanup
     closesocket(socket);
-    WSACleanup();
 }
 
 void sendMessage(const SOCKET socket, const std::string &message) {
@@ -112,32 +110,20 @@ void sendMessage(const SOCKET socket, const std::string &message) {
 
     printf("Bytes sent: %d\n", sendResult);
 
-    shutDownSocket(ClientSocket);
+    shutDownSocket(socket);
 }
 
-int main() {
-    if (!setUpTCPConnection()) return 1;
-
-    auto iResult = listen(ListenSocket, SOMAXCONN);
-    if (checkResultFail(iResult == SOCKET_ERROR, "listen", ListenSocket)) return 1;
-
-    // Accept a client socket
-    ClientSocket = accept(ListenSocket, nullptr, nullptr);
-    if (checkResultFail(ClientSocket == INVALID_SOCKET, "accept", ListenSocket)) return 1;
-
-    // No longer need server socket
-    closesocket(ListenSocket);
-
+void processClient(const SOCKET ClientSocket) {
     char recvbuf[DEFAULT_BUFLEN];
     int recvbuflen = DEFAULT_BUFLEN;
 
-    iResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
+    auto recvResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
 
-    if (checkResultFail(iResult <= 0, "recv", ClientSocket)) return 1;
+    if (checkResultFail(recvResult <= 0, "recv", ClientSocket)) return;
 
-    printf("Bytes received: %d\n", iResult);
+    printf("Bytes received: %d\n", recvResult);
 
-    printRequest(recvbuf, iResult);
+    printRequest(recvbuf, recvResult, ClientSocket);
 
     std::stringstream request(recvbuf);
     std::string requestLine;
@@ -158,13 +144,13 @@ int main() {
     if (requestLineValidator.isRequestLineInvalid()) {
         const std::string errorResponse = responseStrategy->getErrorResponse(requestLineValidator.errorCode);
         sendMessage(ClientSocket, errorResponse);
-        return 0;
+        return;
     }
 
     if (processedRequestLine.isSimpleRequest()) {
         const auto response = SimpleRequestHandler::handleRequest(processedRequestLine, simpleResponseStrategy);
         sendMessage(ClientSocket, response);
-        return 0;
+        return;
     }
 
     //Validate headers
@@ -174,7 +160,7 @@ int main() {
     if (requestHeadersValidator.areRequestHeadersInvalid()) {
         const auto response = responseStrategy->getErrorResponse(requestHeadersValidator.errorCode);
         sendMessage(ClientSocket, response);
-        return 0;
+        return;
     }
 
     std::string requestBody(request.str());
@@ -193,6 +179,21 @@ int main() {
     }
 
     sendMessage(ClientSocket, response);
+}
 
-    return 0;
+int main() {
+    if (!setUpTCPConnection()) return 1;
+
+    //Start listening for clients
+    const auto listenResult = listen(ListenSocket, SOMAXCONN);
+    if (checkResultFail(listenResult == SOCKET_ERROR, "listen", ListenSocket)) return 1;
+
+    while(true) {
+        // Accept a client socket
+        const auto ClientSocket = accept(ListenSocket, nullptr, nullptr);
+        if (checkResultFail(ClientSocket == INVALID_SOCKET, "accept", ListenSocket)) continue;
+
+        std::thread t1(processClient, ClientSocket);
+        t1.detach();
+    }
 }
