@@ -18,32 +18,37 @@
 #define DEFAULT_PORT "8080"
 #define DEFAULT_BUFLEN 512
 
-char recvbuf[DEFAULT_BUFLEN];
-int iResult, iSendResult;
-int recvbuflen = DEFAULT_BUFLEN;
-
 addrinfo *result = nullptr, *ptr = nullptr, hints;
 
 auto simpleResponseStrategy = SimpleResponseStrategy();
 auto fullResponseStrategy = FullResponseStrategy();
 
+SOCKET ListenSocket = INVALID_SOCKET;
+SOCKET ClientSocket = INVALID_SOCKET;
 
-int main()
-{
+
+bool checkResultFail(const bool result, const std::string &actionName, const SOCKET socket) {
+    if (!result) return false;
+
+    std::cout << actionName << " failed with error: " << WSAGetLastError() << std::endl;
+
+    closesocket(socket);
+    WSACleanup();
+
+    return true;
+}
+
+bool setUpTCPConnection() {
     WSADATA wsaData = {};
 
     addrinfo *result = nullptr;
     addrinfo hints{};
 
-    int iSendResult;
-    char recvbuf[DEFAULT_BUFLEN];
-    int recvbuflen = DEFAULT_BUFLEN;
-
     // Initialize Winsock
     int iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
     if (iResult != 0) {
         printf("WSAStartup failed with error: %d\n", iResult);
-        return 1;
+        return false;
     }
 
     ZeroMemory(&hints, sizeof(hints));
@@ -54,144 +59,140 @@ int main()
 
     // Resolve the server address and port
     iResult = getaddrinfo(nullptr, DEFAULT_PORT, &hints, &result);
-    if ( iResult != 0 ) {
+    if (iResult != 0) {
         printf("getaddrinfo failed with error: %d\n", iResult);
         WSACleanup();
-        return 1;
+        return false;
     }
 
     // Create a SOCKET for the server to listen for client connections.
-    SOCKET ListenSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+    ListenSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
     if (ListenSocket == INVALID_SOCKET) {
         printf("socket failed with error: %ld\n", WSAGetLastError());
         freeaddrinfo(result);
         WSACleanup();
-        return 1;
+        return false;
     }
 
     // Setup the TCP listening socket
     iResult = bind( ListenSocket, result->ai_addr, (int)result->ai_addrlen);
-    if (iResult == SOCKET_ERROR) {
-        printf("bind failed with error: %d\n", WSAGetLastError());
+    if (checkResultFail(iResult == SOCKET_ERROR, "bind", ListenSocket)) {
         freeaddrinfo(result);
-        closesocket(ListenSocket);
-        WSACleanup();
-        return 1;
+        return false;
     }
 
     freeaddrinfo(result);
 
-    iResult = listen(ListenSocket, SOMAXCONN);
-    if (iResult == SOCKET_ERROR) {
-        printf("listen failed with error: %d\n", WSAGetLastError());
-        closesocket(ListenSocket);
-        WSACleanup();
-        return 1;
+    return true;
+}
+
+void printRequest(char buffer[DEFAULT_BUFLEN], int size) {
+    for(int i = 0 ; i < size ; ++i){
+        std::cout << buffer[i];
     }
+    std::cout << std::endl;
+    printf("\n");
+}
+
+void shutDownSocket(const SOCKET socket) {
+    // shutdown the connection since we're done
+    const auto shutdownResult = shutdown(socket, SD_SEND);
+
+    if (checkResultFail(shutdownResult == SOCKET_ERROR, "shutdown", socket)) return;
+
+    // cleanup
+    closesocket(socket);
+    WSACleanup();
+}
+
+void sendMessage(const SOCKET socket, const std::string &message) {
+    const auto sendResult = send(socket, message.c_str(), message.length(), 0);
+
+    if (checkResultFail(sendResult == SOCKET_ERROR, "send", socket)) return;
+
+    printf("Bytes sent: %d\n", sendResult);
+
+    shutDownSocket(ClientSocket);
+}
+
+int main() {
+    if (!setUpTCPConnection()) return 1;
+
+    auto iResult = listen(ListenSocket, SOMAXCONN);
+    if (checkResultFail(iResult == SOCKET_ERROR, "listen", ListenSocket)) return 1;
 
     // Accept a client socket
-    SOCKET ClientSocket = accept(ListenSocket, nullptr, nullptr);
-    if (ClientSocket == INVALID_SOCKET) {
-        printf("accept failed with error: %d\n", WSAGetLastError());
-        closesocket(ListenSocket);
-        WSACleanup();
-        return 1;
-    }
+    ClientSocket = accept(ListenSocket, nullptr, nullptr);
+    if (checkResultFail(ClientSocket == INVALID_SOCKET, "accept", ListenSocket)) return 1;
 
     // No longer need server socket
     closesocket(ListenSocket);
 
+    char recvbuf[DEFAULT_BUFLEN];
+    int recvbuflen = DEFAULT_BUFLEN;
+
     iResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
-    if (iResult > 0) {
-        printf("Bytes received: %d\n", iResult);
 
-        for(int i=0 ; i<recvbuflen ; ++i){
-            std::cout << recvbuf[i];
-        }
-        std::cout << std::endl;
-        printf("\n");
+    if (checkResultFail(iResult <= 0, "recv", ClientSocket)) return 1;
 
-        //1. Read request line HTTP 0.9 request doesn't have HTTP-Version in request-line
-        // Request-Line   = Method SP Request-URI SP HTTP-Version CRLF
-        std::stringstream request(recvbuf);
-        std::string line;
+    printf("Bytes received: %d\n", iResult);
 
-        std::getline(request, line);
+    printRequest(recvbuf, iResult);
+
+    std::stringstream request(recvbuf);
+    std::string requestLine;
+
+    std::getline(request, requestLine);
 
 
-        auto requestLineValidator = RequestLineValidator();
-        RequestLine processedRequestLine = requestLineValidator.validateRequestLine(line);
+    auto requestLineValidator = RequestLineValidator();
+    RequestLine processedRequestLine = requestLineValidator.validateRequestLine(requestLine);
 
-        ResponseStrategy *responseStrategy;
-        if (processedRequestLine.isSimpleRequest()) {
-            responseStrategy = &simpleResponseStrategy;
-        } else {
-            responseStrategy = &fullResponseStrategy;
-        }
-
-        if (requestLineValidator.isRequestLineInvalid()) {
-            std::string errorResponse = responseStrategy->getErrorResponse(requestLineValidator.errorCode);
-
-            iSendResult = send(ClientSocket, errorResponse.c_str(), errorResponse.length(), 0);
-            //do shutdown (don't copy paste)
-        } else {
-            std::string response;
-
-            if (processedRequestLine.isSimpleRequest()) {
-                response = SimpleRequestHandler::handleRequest(processedRequestLine, simpleResponseStrategy);
-            } else {
-                //Validate headers
-                auto requestHeadersValidator = RequestHeadersValidator();
-                RequestHeaders requestHeaders = requestHeadersValidator.validateHeaders(request);
-
-                if (requestHeadersValidator.areRequestHeadersInvalid()) {
-                    response = responseStrategy->getErrorResponse(requestHeadersValidator.errorCode);
-                } else {
-                    std::string requestBody(request.str());
-
-                    FullRequest fullRequest { processedRequestLine, requestHeaders, requestBody };
-
-                    auto fullResponse = FullResponse();
-
-                    FullRequestHandler::handleRequest(fullRequest, fullResponse);
-
-                    if (fullResponse.isErrorResponse()) {
-                        response = responseStrategy->getErrorResponse(fullResponse.getErrorCode());
-                    } else {
-                        response = FullResponseStrategy::getFullResponseStr(processedRequestLine.method, fullResponse);\
-                    }
-                }
-            }
-
-            iSendResult = send(ClientSocket, response.c_str(), response.length(), 0);
-        }
-        if (iSendResult == SOCKET_ERROR) {
-            printf("send failed with error: %d\n", WSAGetLastError());
-            closesocket(ClientSocket);
-            WSACleanup();
-            return 1;
-        }
-
-        printf("Bytes sent: %d\n", iSendResult);
-    } else  {
-        printf("recv failed with error: %d\n", WSAGetLastError());
-        closesocket(ClientSocket);
-        WSACleanup();
-        return 1;
+    ResponseStrategy *responseStrategy;
+    if (processedRequestLine.isSimpleRequest()) {
+        responseStrategy = &simpleResponseStrategy;
+    } else {
+        responseStrategy = &fullResponseStrategy;
     }
 
-    // shutdown the connection since we're done
-    iResult = shutdown(ClientSocket, SD_SEND);
-    if (iResult == SOCKET_ERROR) {
-        printf("shutdown failed with error: %d\n", WSAGetLastError());
-        closesocket(ClientSocket);
-        WSACleanup();
-        return 1;
+    if (requestLineValidator.isRequestLineInvalid()) {
+        const std::string errorResponse = responseStrategy->getErrorResponse(requestLineValidator.errorCode);
+        sendMessage(ClientSocket, errorResponse);
+        return 0;
     }
 
-    // cleanup
-    closesocket(ClientSocket);
-    WSACleanup();
+    if (processedRequestLine.isSimpleRequest()) {
+        const auto response = SimpleRequestHandler::handleRequest(processedRequestLine, simpleResponseStrategy);
+        sendMessage(ClientSocket, response);
+        return 0;
+    }
+
+    //Validate headers
+    auto requestHeadersValidator = RequestHeadersValidator();
+    RequestHeaders requestHeaders = requestHeadersValidator.validateHeaders(request);
+
+    if (requestHeadersValidator.areRequestHeadersInvalid()) {
+        const auto response = responseStrategy->getErrorResponse(requestHeadersValidator.errorCode);
+        sendMessage(ClientSocket, response);
+        return 0;
+    }
+
+    std::string requestBody(request.str());
+
+    FullRequest fullRequest { processedRequestLine, requestHeaders, requestBody };
+
+    auto fullResponse = FullResponse();
+
+    FullRequestHandler::handleRequest(fullRequest, fullResponse);
+
+    std::string response;
+    if (fullResponse.isErrorResponse()) {
+        response = responseStrategy->getErrorResponse(fullResponse.getErrorCode());
+    } else {
+        response = FullResponseStrategy::getFullResponseStr(processedRequestLine.method, fullResponse);\
+    }
+
+    sendMessage(ClientSocket, response);
 
     return 0;
 }

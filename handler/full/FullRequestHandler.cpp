@@ -4,8 +4,6 @@
 
 #include "FullRequestHandler.h"
 
-#include <iostream>
-
 #include "../../discoverer/FileDiscoverer.h"
 
 void FullRequestHandler::handleRequest(const FullRequest &fullRequest, FullResponse &fullResponse) {
